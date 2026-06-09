@@ -1,23 +1,72 @@
 #!/usr/bin/env bash
+# ui.sh — единая обёртка над whiptail/dialog
+
 set -euo pipefail
-# Заглушка — реализация в Task 7
+
+# Определяем, что доступно
+WHIPTAIL_BIN=""
+if command -v whiptail >/dev/null 2>&1; then
+  WHIPTAIL_BIN="whiptail"
+elif command -v dialog >/dev/null 2>&1; then
+  WHIPTAIL_BIN="dialog"
+else
+  err "Не найден whiptail или dialog. Установите: apt-get install -y whiptail"
+  return 1 2>/dev/null || exit 1
+fi
+
+# Все UI-функции используют переменную для swap на dialog
+_ui() {
+  "$WHIPTAIL_BIN" "$@"
+}
+
+# Menu: возвращает TAG выбранного пункта
 ui_menu() {
-  whiptail --menu "$1" 18 70 10 --cancel-button Exit -- "${@:2}" 3>&1 1>&2 2>&3
+  local title="$1" prompt="$2"
+  shift 2
+  local height=18 width=70 menuheight=10
+  _ui --title "$title" --menu "$prompt" $height $width $menuheight -- "${@}" 3>&1 1>&2 2>&3
 }
-ui_msgbox() {
-  whiptail --msgbox "$2" 10 60 --title "$1" 3>&1 1>&2 2>&3
+
+# Radiolist: возвращает TAG выбранного
+ui_radio() {
+  local title="$1" prompt="$2"
+  shift 2
+  _ui --title "$title" --radiolist "$prompt" 18 70 10 -- "${@}" 3>&1 1>&2 2>&3
 }
+
+# Checklist: возвращает TAG выбранных (через пробел)
+ui_checklist() {
+  local title="$1" prompt="$2"
+  shift 2
+  _ui --title "$title" --checklist "$prompt" 18 70 10 -- "${@}" 3>&1 1>&2 2>&3
+}
+
+# Inputbox: возвращает введённое значение
 ui_input() {
   local label="$1" default="${2:-}"
-  [[ -n "$default" ]] && whiptail --inputbox "$label" 10 60 "$default" 3>&1 1>&2 2>&3 \
-                       || whiptail --inputbox "$label" 10 60 3>&1 1>&2 2>&3
+  if [[ -n "$default" ]]; then
+    _ui --title "Ввод" --inputbox "$label" 10 60 "$default" 3>&1 1>&2 2>&3
+  else
+    _ui --title "Ввод" --inputbox "$label" 10 60 3>&1 1>&2 2>&3
+  fi
 }
+
+# Passwordbox: возвращает введённое (скрыто)
 ui_password() {
-  whiptail --passwordbox "$1" 10 60 3>&1 1>&2 2>&3
+  _ui --title "Пароль" --passwordbox "$1" 10 60 3>&1 1>&2 2>&3
 }
+
+# Msgbox: показывает сообщение
+ui_msgbox() {
+  _ui --title "$1" --msgbox "$2" 12 70
+}
+
+# Yesno: возвращает 0 если Yes, 1 если No
 ui_yesno() {
-  whiptail --yesno "$1" 10 60 --title "Подтверждение" 3>&1 1>&2 2>&3
+  _ui --title "Подтверждение" --yesno "$1" 12 70
 }
-ui_radio() {
-  whiptail --radiolist "$2" 18 70 10 -- "${@:3}" 3>&1 1>&2 2>&3
+
+# Textbox: показывает содержимое файла
+ui_textbox() {
+  _ui --title "$2" --textbox "$1" 22 80
 }
