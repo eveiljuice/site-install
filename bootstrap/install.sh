@@ -31,9 +31,11 @@ fi
 
 # Копируем файлы
 echo "==> Установка файлов в $INSTALL_PREFIX"
-mkdir -p "$INSTALL_PREFIX/share/site-install"
-cp -r /opt/site-install/lib      "$INSTALL_PREFIX/share/site-install/"
-cp -r /opt/site-install/adapters "$INSTALL_PREFIX/share/site-install/"
+mkdir -p "$INSTALL_PREFIX/share/site-install/lib"
+mkdir -p "$INSTALL_PREFIX/share/site-install/adapters"
+# cp -r SRC/. DST/ копирует СОДЕРЖИМОЕ SRC в DST (надёжнее чем cp -r SRC DST/ в edge-case с существующим подкаталогом)
+cp -r /opt/site-install/lib/.      "$INSTALL_PREFIX/share/site-install/lib/"
+cp -r /opt/site-install/adapters/. "$INSTALL_PREFIX/share/site-install/adapters/"
 cp /opt/site-install/bin/site-install "$INSTALL_PREFIX/bin/site-install"
 chmod +x "$INSTALL_PREFIX/bin/site-install"
 

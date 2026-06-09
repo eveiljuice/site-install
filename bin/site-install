@@ -17,6 +17,14 @@ if [[ -d "$(dirname "$(readlink -f "$0")")/../lib" ]]; then
 fi
 
 # Загружаем core
+if [[ ! -f "$SITE_INSTALL_LIB/core.sh" ]]; then
+  echo "site-install: не найден core.sh в $SITE_INSTALL_LIB"
+  echo ""
+  echo "Похоже, установка прошла некорректно (пустые каталоги lib/ и adapters/)."
+  echo "Переустановите:"
+  echo "  curl -fsSL https://raw.githubusercontent.com/eveiljuice/site-install/main/bootstrap/install.sh | sudo bash"
+  exit 1
+fi
 source "$SITE_INSTALL_LIB/core.sh"
 
 # Загружаем адаптеры
