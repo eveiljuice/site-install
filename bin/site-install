@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Тонкая точка входа — реализация в Task 2
+echo "site-install: stub"
+exit 0

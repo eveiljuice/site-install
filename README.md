@@ -1,2 +1,5 @@
 # site-install
-Interactive TUI installer for PHP/MySQL/Apache sites
+
+Интерактивный TUI-установщик PHP/MySQL/Apache-сайтов.
+
+(документация появится в Task 15)

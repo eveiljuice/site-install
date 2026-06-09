@@ -1,0 +1,16 @@
+# Build artefacts
+*.tar.gz
+*.zip
+
+# State (не коммитим реальный state)
+state.json
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
