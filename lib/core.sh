@@ -116,5 +116,171 @@ main_dry_run() {
 
 # Заглушка для wizard — реализуем в Task 12
 wizard_new_install() {
-  ui_msgbox "WIP" "Мастер новой установки появится в Task 12"
+  # 1. Источник
+  local source
+  source=$(ui_radio "Источник проекта" "Откуда взять проект?" \
+    "git"   "Git-репозиторий (URL)" on \
+    "zip"   "ZIP-архив (локальный путь)" off \
+    "local" "Локальная папка" off) || return 0
+
+  local source_arg
+  case "$source" in
+    git)
+      source_arg=$(ui_input "URL git-репозитория" "https://github.com/user/repo.git")
+      ;;
+    zip)
+      source_arg=$(ui_input "Путь к ZIP-архиву" "/root/site.zip")
+      ;;
+    local)
+      source_arg=$(ui_input "Путь к локальной папке" "/root/my-site")
+      ;;
+  esac
+
+  # 2. Папка установки
+  local basename
+  basename=$(basename "$source_arg" .git | sed 's/\.zip$//' | tr '/' '_')
+  local default_dest="/var/www/$basename"
+  local dest
+  dest=$(ui_input "Директория установки" "$default_dest")
+
+  if [[ -d "$dest" ]] && [[ -n "$(ls -A "$dest" 2>/dev/null)" ]]; then
+    local overwrite
+    overwrite=$(ui_radio "Папка не пуста" "$dest уже содержит файлы. Что делать?" \
+      "ABORT" "Прервать установку" on \
+      "USE"   "Использовать существующую" off \
+      "WIPE"  "Удалить и установить заново" off) || return 0
+    case "$overwrite" in
+      ABORT) return 0 ;;
+      WIPE)  rm -rf "$dest" ;;
+      USE)   : ;;  # ok
+    esac
+  fi
+
+  # 3. Получаем проект
+  mkdir -p "$dest"
+  case "$source" in
+    git)   run_with_progress "Клонирование" 1 "git clone --depth=1 '$source_arg' '$dest'" ;;
+    zip)   source_zip "$source_arg" "$dest" ;;
+    local) source_local "$source_arg" "$dest" ;;
+  esac
+
+  # 4. Детект стека + выбор адаптера
+  local stack_json; stack_json=$(detect_stack "$dest")
+  local adapter_file=""
+  for adapter in "$SITE_INSTALL_ADAPTERS"/*.sh; do
+    [[ -f "$adapter" ]] || continue
+    [[ "$(basename "$adapter")" == "_contract.sh" ]] && continue
+    source "$adapter"
+    if declare -F adapter_matches >/dev/null && adapter_matches "$stack_json"; then
+      adapter_file="$adapter"
+      break
+    fi
+  done
+
+  if [[ -z "$adapter_file" ]]; then
+    err "Не найден подходящий адаптер для этого проекта"
+    return 1
+  fi
+  ok "Адаптер: $(basename "$adapter_file")"
+
+  # 5. Домен (опц.)
+  local domain=""; local ssl="no"
+  local want_domain
+  want_domain=$(ui_radio "Домен" "Как настраивать домен?" \
+    "LOCAL" "Только локальный URL" on \
+    "DOMAIN" "Свой домен (с настройкой DNS)" off \
+    "DOMAIN_SSL" "Свой домен + SSL (Let's Encrypt)" off) || return 0
+  case "$want_domain" in
+    LOCAL) domain="" ;;
+    DOMAIN|DOMAIN_SSL)
+      domain=$(ui_input "Доменное имя" "example.com")
+      domain_check_dns "$domain" || true
+      [[ "$want_domain" == "DOMAIN_SSL" ]] && ssl="yes"
+      ;;
+  esac
+
+  # 6. Проверка места
+  local proj_size; proj_size=$(size_bytes "$dest")
+  if ! check_disk_space "$proj_size" "$dest"; then
+    return 1
+  fi
+
+  # 7. Запуск шагов
+  run_install "$dest" "$adapter_file" "$domain" "$ssl"
+}
+
+# run_install: основной пайплайн установки
+# run_install <project_path> <adapter_file> <domain> <ssl>
+run_install() {
+  local dest="$1" adapter_file="$2" domain="$3" ssl="$4"
+  local project_name; project_name=$(basename "$dest")
+
+  source "$SITE_INSTALL_LIB/state.sh"
+  source "$SITE_INSTALL_LIB/log.sh"
+  source "$SITE_INSTALL_LIB/apt.sh"
+  source "$SITE_INSTALL_LIB/apache.sh"
+  source "$SITE_INSTALL_LIB/mysql.sh"
+  source "$SITE_INSTALL_LIB/domain.sh"
+  source "$SITE_INSTALL_LIB/env.sh"
+  source "$SITE_INSTALL_LIB/migrate.sh"
+
+  # Подгружаем адаптер
+  source "$adapter_file"
+  local apt_pkgs=()
+  while IFS= read -r line; do apt_pkgs+=("$line"); done < <(adapter_apt_packages)
+  local apache_mods=()
+  while IFS= read -r line; do apache_mods+=("$line"); done < <(adapter_apache_modules)
+  local env_prompts
+  env_prompts=$(adapter_env_prompts "$domain")
+
+  state_init
+  log_init
+  log_rotate
+
+  # Глобальные переменные для step()
+  export PROJECT_NAME="$project_name"
+  export DEST="$dest"
+
+  # Шаги в фиксированном порядке
+  step "apt_packages"  install_apt_packages  "${apt_pkgs[@]}"
+  step "apache_modules" enable_apache_modules "${apache_mods[@]}"
+
+  if [[ -n "$domain" ]]; then
+    local vhost_content
+    vhost_content=$(make_vhost "$domain" "$dest/public" "$dest" "fpm" "$ssl")
+    step "vhost"        apply_vhost          "$domain" "$vhost_content" "$dest"
+    if [[ "$ssl" == "yes" ]]; then
+      local email
+      email=$(ui_input "Email для Let's Encrypt" "admin@$domain")
+      step "ssl_cert" setup_ssl "$domain" "$email"
+    fi
+  fi
+
+  step "mysql_db"      mysql_setup_wizard
+  step "env_generated" generate_env         "$dest" "$env_prompts"
+  step "migrations"    run_migrations       "$dest"
+
+  ok "Установка завершена!"
+  ui_msgbox "Готово" "Проект $project_name установлен в $dest\n\nURL: ${domain:+https://$domain}${domain:-локально}"
+}
+
+# Обёртка для шага: проверяет is_step_done, вызывает функцию, обновляет state
+# step <step_name> <func_name> <func_args...>
+step() {
+  local name="$1" func="$2"
+  shift 2
+
+  if is_step_done "$PROJECT_NAME" "$name"; then
+    log_skip "$name"
+    return 0
+  fi
+
+  set_step "$PROJECT_NAME" "$name" "in_progress" "$DEST"
+  if "$func" "$@"; then
+    set_step "$PROJECT_NAME" "$name" "done"
+  else
+    set_step "$PROJECT_NAME" "$name" "failed"
+    err "Шаг «$name» не выполнен"
+    return 1
+  fi
 }
