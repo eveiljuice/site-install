@@ -1,4 +1,37 @@
 #!/usr/bin/env bash
-# Тонкая точка входа — реализация в Task 2
-echo "site-install: stub"
-exit 0
+# site-install — интерактивный установщик сайтов
+# Расположение: /usr/local/bin/site-install (после установки)
+# Исходники: /usr/local/share/site-install/
+
+set -euo pipefail
+
+# Подключаем библиотеки и адаптеры
+SITE_INSTALL_LIB="${SITE_INSTALL_LIB:-/usr/local/share/site-install/lib}"
+SITE_INSTALL_ADAPTERS="${SITE_INSTALL_ADAPTERS:-/usr/local/share/site-install/adapters}"
+
+# Если скрипт запущен из репо (для разработки) — ищем lib рядом
+if [[ -d "$(dirname "$(readlink -f "$0")")/../lib" ]]; then
+  REPO_ROOT="$(dirname "$(readlink -f "$0")")/.."
+  SITE_INSTALL_LIB="$REPO_ROOT/lib"
+  SITE_INSTALL_ADAPTERS="$REPO_ROOT/adapters"
+fi
+
+# Загружаем core
+source "$SITE_INSTALL_LIB/core.sh"
+
+# Загружаем адаптеры
+for adapter in "$SITE_INSTALL_ADAPTERS"/*.sh; do
+  [[ -f "$adapter" ]] || continue
+  [[ "$(basename "$adapter")" == "_contract.sh" ]] && continue
+  source "$adapter"
+done
+
+# Маршрутизация аргументов
+case "${1:-}" in
+  --dry-run)   shift; main_dry_run "$@" ;;
+  --list)      main_list ;;
+  --version|-v) main_version ;;
+  --help|-h)   main_help ;;
+  "")          main_interactive ;;
+  *)           echo "Unknown argument: $1"; main_help; exit 1 ;;
+esac
