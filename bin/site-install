@@ -9,8 +9,10 @@ set -euo pipefail
 SITE_INSTALL_LIB="${SITE_INSTALL_LIB:-/usr/local/share/site-install/lib}"
 SITE_INSTALL_ADAPTERS="${SITE_INSTALL_ADAPTERS:-/usr/local/share/site-install/adapters}"
 
-# Если скрипт запущен из репо (для разработки) — ищем lib рядом
-if [[ -d "$(dirname "$(readlink -f "$0")")/../lib" ]]; then
+# Если скрипт запущен из репо (для разработки) — ищем lib рядом.
+# Защита от ложного срабатывания: папки типа /usr/local/lib существуют на любом Debian-сервере.
+# Срабатываем ТОЛЬКО если рядом с бинарём лежит наш core.sh (т.е. это явно dev-режим из клона).
+if [[ -f "$(dirname "$(readlink -f "$0")")/../lib/core.sh" ]]; then
   REPO_ROOT="$(dirname "$(readlink -f "$0")")/.."
   SITE_INSTALL_LIB="$REPO_ROOT/lib"
   SITE_INSTALL_ADAPTERS="$REPO_ROOT/adapters"
